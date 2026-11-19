@@ -1,11 +1,14 @@
 import Flutter
 import UIKit
+import AppTrackingTransparency
 import UserNotifications
 import FirebaseCore
 import FirebaseMessaging
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, MessagingDelegate {
+  private var trackingChannel: FlutterMethodChannel?
+  private var trackingRequestInFlight = false
   private var fcmTokenChannel: FlutterMethodChannel?
   private var latestFcmToken: String?
   private var tokenBridgeReady = false
@@ -19,6 +22,21 @@ import FirebaseMessaging
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let tracking = FlutterMethodChannel(
+      name: "mtparrow/tracking",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    trackingChannel = tracking
+    tracking.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "request" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      DispatchQueue.main.async {
+        self?.requestTrackingAuthorization(result)
+      }
+    }
+
     let tokenChannel = FlutterMethodChannel(
       name: "com.example.fcm/token",
       binaryMessenger: engineBridge.applicationRegistrar.messenger()
@@ -62,6 +80,31 @@ import FirebaseMessaging
           return
         }
         Self.updateFlightReminder(call.arguments, result: result)
+      }
+    }
+  }
+
+  private func requestTrackingAuthorization(_ result: @escaping FlutterResult) {
+    guard #available(iOS 14.5, *) else { result("unavailable"); return }
+    let statusName: (ATTrackingManager.AuthorizationStatus) -> String = { status in
+      switch status {
+      case .authorized: return "authorized"
+      case .denied: return "denied"
+      case .restricted: return "restricted"
+      case .notDetermined: return "notDetermined"
+      @unknown default: return "unavailable"
+      }
+    }
+    let status = ATTrackingManager.trackingAuthorizationStatus
+    guard status == .notDetermined else { result(statusName(status)); return }
+    // Flutter's post-frame/resume flow also supports UIScene applications.
+    guard UIApplication.shared.applicationState == .active,
+          !trackingRequestInFlight else { result("notDetermined"); return }
+    trackingRequestInFlight = true
+    ATTrackingManager.requestTrackingAuthorization { [weak self] status in
+      DispatchQueue.main.async {
+        self?.trackingRequestInFlight = false
+        result(statusName(status))
       }
     }
   }

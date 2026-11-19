@@ -10,6 +10,7 @@ import 'mobile_services.dart';
 
 class SiteBridge {
   static const siteOrigin = 'https://beefwv8.com';
+  static const appOrigins = {'https://www.eedv.ink', 'https://eedv.ink'};
   final String localOrigin;
   InAppWebViewController? controller;
   bool started = false;
@@ -48,7 +49,9 @@ class SiteBridge {
 
   Future<bool> trusted() async {
     final url = await controller?.getUrl();
-    return url?.origin == localOrigin || (started && url?.origin == siteOrigin);
+    return url?.origin == localOrigin ||
+        appOrigins.contains(url?.origin) ||
+        (started && url?.origin == siteOrigin);
   }
 
   Future<NavigationActionPolicy> navigate(NavigationAction action) async {
@@ -105,7 +108,9 @@ class SiteBridge {
         final web = controller;
         if (web == null) continue;
         final pageOrigin = (await web.getUrl())?.origin;
-        final canSend = started && pageOrigin == siteOrigin;
+        final canSend =
+            appOrigins.contains(pageOrigin) ||
+            (started && pageOrigin == siteOrigin);
         if (!canSend && !kDebugMode) continue;
         final token = await FcmTokenBridge.refresh();
         var granted = false;
@@ -151,12 +156,12 @@ class SiteBridge {
         await web.evaluateJavascript(
           source:
               'if (window.location.origin === ' +
-              jsonEncode(siteOrigin) +
+              jsonEncode(pageOrigin) +
               ') {' +
               'window.parent.postMessage(' +
               jsonEncode(payload) +
               ',' +
-              jsonEncode(siteOrigin) +
+              jsonEncode(pageOrigin) +
               '); }',
         );
       }
